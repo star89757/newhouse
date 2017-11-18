@@ -13,7 +13,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -34,11 +33,14 @@ import org.jsoup.select.Elements;
 
 public class GetNewHouse2 {
 
-	static int pageSize = -1;//提取多少页，如果-1，则提取所有
+	static int pageSize = 1;//提取多少页，如果-1，则提取所有
 	static int page = 1;
 	static int timeOut = 20000;
 	static int count = 0;
-	static int finishCount = 0;
+	static int finishCount_detail = 0;
+	static int finishCount_dt = 0;
+	static int finishCount_hx = 0;
+	
 	static List<Map<String,String>> houseList = new ArrayList<Map<String,String>>();
 	
 	
@@ -48,7 +50,7 @@ public class GetNewHouse2 {
 		getNewHouse(htmlUrl,htmlUrl,houseList);
 		
 		//所有线程执行完后写入Excel文件
-		while(count != finishCount){
+		while(count != finishCount_detail || count != finishCount_dt || count != finishCount_hx){
 			try {
 				//System.out.println("等待所有网页提取完成！");
 				Thread.sleep(2000);
@@ -58,7 +60,8 @@ public class GetNewHouse2 {
 		/*for(int i =0;i<houseList.size();i++){
 			System.out.println(houseList.get(i).toString());
 		}*/
-		exportExcel(houseList);
+		String fileName = exportExcel(houseList);
+		System.out.println("===============成功生成文件：" + fileName + "===============");
 		System.out.println("===============执行完成===============");
 	}
 
@@ -66,20 +69,22 @@ public class GetNewHouse2 {
 	 * 导出Excel文件
 	 * @param excelFile
 	 * @param houseList
+	 * @return 
 	 */
 	@SuppressWarnings("deprecation")
-	private static void exportExcel(List<Map<String, String>> houseList) {
+	private static String exportExcel(List<Map<String, String>> houseList) {
 		
 		FileOutputStream out = null;
 		String fileName = "";
+		File destFile = null;
 		
 		try {
 			//定义文件名
 			fileName = "newhouse_" + new SimpleDateFormat("yyyyMMddHHmmssS").format(new Date())+".xlsx";
-			String src = new File(GetNewHouse.class.getResource("/").getPath()).getParent() + File.separator + "tmpl" + File.separator + "blank.xlsx";
+			//String src = "blank.xlsx";
 			
-			File destFile = new File(String.format("%s%s%s", "d:\\" , File.separator , fileName));
-			FileUtils.copyFile(new File(src), destFile);
+			destFile = new File(String.format("%s%s%s", "d:\\" , File.separator , fileName));
+			//FileUtils.copyFile(new File(src), destFile);
 			
 			//生成Excel报表
 			Workbook wb = new SXSSFWorkbook(10000);
@@ -91,6 +96,10 @@ public class GetNewHouse2 {
 			f.setUnderline(Font.U_SINGLE);
 			f.setColor(HSSFColor.BLUE.index);
 			linkStyle.setFont(f);
+			
+			CellStyle wrapStyle  = wb.createCellStyle();
+			wrapStyle.cloneStyleFrom(styleMap.get("stringStyle"));
+			wrapStyle.setWrapText(true);
 			
 			//------------------------------------------------写明细报表数据------------------------------------------------//
 			Sheet mxSheet = wb.createSheet();
@@ -111,10 +120,14 @@ public class GetNewHouse2 {
 			mxHeads.add("总户数");
 			mxHeads.add("停车位");
 			
-			mxHeads.add("面积段及户型");
+			mxHeads.add("户型");
 			mxHeads.add("物业费");
 			mxHeads.add("物业公司");
 			mxHeads.add("楼层状况");
+			
+			//mxHeads.add("楼盘动态标题");
+			mxHeads.add("楼盘动态内容");
+			
 			mxHeads.add("网址");
 			
 			//写表头
@@ -135,7 +148,9 @@ public class GetNewHouse2 {
 						Cell cell = dataRow.getCell(j-1);
 						cell.setCellType(Cell.CELL_TYPE_FORMULA);
 						cell.setCellFormula("HYPERLINK(\"" + data.get(mxHeads.get(z)) + "\",\"" + data.get(mxHeads.get(z)) + "\")");
-					}else{
+					}/*else if("户型".equals(mxHeads.get(z))){
+						ExcelUtil.writeCell(dataRow,j++,Cell.CELL_TYPE_STRING,data.get(mxHeads.get(z)),wrapStyle);
+					}*/else{
 						ExcelUtil.writeCell(dataRow,j++,Cell.CELL_TYPE_STRING,data.get(mxHeads.get(z)),styleMap.get("stringStyle"));
 					}
 				}
@@ -157,17 +172,18 @@ public class GetNewHouse2 {
 					e.printStackTrace();
 				}
 		}
+		return destFile.getPath();
 	}
 
 	/**
-	 * 获取房屋信息
+	 * 获取楼盘信息
 	 * @param htmlUrl
 	 * @param htmlUrl2
 	 */
 	public static void getNewHouse(String baseUrl, String htmlUrl,List<Map<String,String>> houseList) {
 		System.out.println("=========正在执行第[" + page + "]页=========");
 		try {
-			//获取当前页的房屋信息
+			//获取当前页的楼盘信息
 			//Document doc  = Jsoup.connect(htmlUrl).timeout(timeOut).get();
 			Document doc = getDoc(htmlUrl);
 			if(null == doc){
@@ -182,11 +198,52 @@ public class GetNewHouse2 {
 						String houseName = nhouse_li_a.get(1).text();
 						String houseLink = nhouse_li_a.get(1).attr("href");
 						//Document detailDoc_1  = Jsoup.connect(houseLink).timeout(timeOut).get();
+						Map<String,String> houseMap = new HashMap<String,String>();
+						
+						Document detailDoc_1  = getDoc(houseLink);
+						if(null != detailDoc_1){
+							//楼盘详细页面
+							Elements navleft = detailDoc_1.getElementsByClass("navleft");
+							String detailLink = "";
+							String dtLink  = "";
+							String hxLink = "";
+							if(null != navleft && navleft.size() > 0){
+								Elements navleft_a = navleft.get(0).getElementsByTag("a");
+								for(int x = 0;x<navleft_a.size();x++){
+									//TODO:
+									String linkName = navleft_a.get(x).text();
+									if(linkName.indexOf("楼盘详情") != -1 || linkName.indexOf("详细信息") != -1){
+										detailLink = navleft_a.get(x).attr("href");
+										dtLink = detailLink.replace("housedetail.htm", "dongtai.htm");
+									}
+									if(linkName.indexOf("户型") != -1){
+										hxLink = navleft_a.get(x).attr("href");
+									}
+								}
+							}
+							houseMap.put("名称", houseName);
+							houseMap.put("网址", detailLink);
+							
+							if(!"".equals(detailLink)){
+								count++;
+								ExecuteThread e1 = new ExecuteThread(detailLink, houseName,"楼盘详情",houseMap);
+								e1.start();
+								ExecuteThread e2 = new ExecuteThread(dtLink, houseName,"楼盘动态",houseMap);
+								e2.start();
+								ExecuteThread e3 = new ExecuteThread(hxLink, houseName,"户型",houseMap);
+								e3.start();
+								
+								if(houseMap.size() > 0){
+									houseList.add(houseMap);
+								}
+							}
+						}
+						/*
 						Thread.sleep(1000);
-						//新建多线程去爬房屋“详细信息”
+						//新建多线程去爬楼盘“详细信息”
 						count++;
 						ExecuteThread e = new ExecuteThread(houseLink, houseName);
-						e.start();
+						e.start();*/
 					}
 				}
 			}
@@ -198,10 +255,12 @@ public class GetNewHouse2 {
 				for(int i = 0;i<otherpage_a.size();i++){
 					if(">".equals(otherpage_a.get(i).text())){
 						if(-1 == pageSize){
+							Thread.sleep(10000);
 							page++;
 							getNewHouse(baseUrl, baseUrl + otherpage_a.get(i).attr("href"),houseList);
 						}else{
 							if(page < pageSize){
+								Thread.sleep(10000);
 								page++;
 								getNewHouse(baseUrl, baseUrl + otherpage_a.get(i).attr("href"),houseList);
 							}
@@ -292,65 +351,150 @@ public class GetNewHouse2 {
 	static class ExecuteThread extends Thread{
 		private String houseLink;
 		private String houseName;
+		private String type;
+		private Map<String,String> houseMap;
 		
-		public ExecuteThread(String url,String name){
+		public ExecuteThread(String url,String name,String type,Map<String,String> houseMap){
 			this.houseLink = url;
 			this.houseName = name;
+			this.type = type;
+			this.houseMap = houseMap;
 		}
 		
 		public void run(){
-			System.out.println("=========正在提取[" + houseLink + "]=========");
+			System.out.println("=========正在提取[" + houseName + "][" + type + "][" + houseLink + "]=========");
 			try {
-				//开始爬虫
-				Document detailDoc_1  = getDoc(houseLink);
-				if(null != detailDoc_1){
-					//房屋详细页面
-					Elements navleft = detailDoc_1.getElementsByClass("navleft");
-					if(null != navleft && navleft.size() > 0){
-						Elements navleft_a = navleft.get(0).getElementsByTag("a");
-						for(int x = 0;x<navleft_a.size();x++){
-							String linkName = navleft_a.get(x).text();
-							if(linkName.indexOf("楼盘详情") != -1 || linkName.indexOf("详细信息") != -1){
-								String detailLink = navleft_a.get(x).attr("href");
-								Map<String,String> houseMap = new HashMap<String,String>();
-								houseMap.put("名称", houseName);
-								houseMap.put("网址", detailLink);
-								
-								//读取“详细信息”中的内容
-								//Document detailDoc_2  = Jsoup.connect(detailLink).timeout(timeOut).get();
+				if("楼盘详情".equals(this.type)){
+					getHouseDetail(houseLink, houseMap);
+				}
+				if("楼盘动态".equals(this.type)){
+					getHouseDt(houseLink, houseMap);
+				}
+				if("户型".equals(this.type)){
+					getHx(houseLink, houseMap);
+				}
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+
+		/**
+		 * 获取户型
+		 * @param navleft_a
+		 * @param houseMap
+		 * @throws Exception
+		 */
+		private void getHx(String hxLink,
+			Map<String, String> houseMap) throws Exception {
+		
+			try {
+				Thread.sleep(1000);
+				Document hxDoc = getDoc(hxLink);
+				if(null != hxDoc){
+					Elements xc_img_list = hxDoc.getElementsByClass("xc_img_list");
+					String hxStr = "";
+					for(int i = 0;i<xc_img_list.size();i++){
+						Elements tiaojian = xc_img_list.get(i).getElementsByClass("tiaojian");
+						if(tiaojian.size() > 0){
+							hxStr += tiaojian.get(0).text() + "--";
+						}
+					}
+					houseMap.put("户型", hxStr);
+				}
+			} catch (Exception e) {
+				throw e;
+			} finally {
+				finishCount_hx++;
+			}
+		}
+		
+		/**
+		 * 获取动态
+		 * @param detailLink
+		 * @param houseMap
+		 * @throws Exception
+		 */
+		private void getHouseDt(String dtLink,
+				Map<String, String> houseMap) throws Exception {
+			try {
+				Thread.sleep(1000);
+				Document dtDoc = getDoc(dtLink);
+				if(null != dtDoc){
+					Elements dtli = dtDoc.getElementsByTag("li");
+					for(int i = 0;i<dtli.size();i++){
+						Elements time_wrapper = dtli.get(i).getElementsByClass("time-wrapper");
+						Elements r_content = dtli.get(i).getElementsByClass("r-content");
+						if(time_wrapper.size() > 0){
+							String title = "";
+							try {
+								title = time_wrapper.get(0).getElementsByTag("h3").get(0).text() + " " + 
+										time_wrapper.get(0).getElementsByTag("h2").get(0).text() + " " + 
+										time_wrapper.get(0).getElementsByTag("h1").get(0).text() + " " + 
+										r_content.get(0).getElementsByTag("h1").text();
+							} catch (Exception e) {
+							}
+							if(!"".equals(title)){
+								houseMap.put("楼盘动态标题", title);
+								String dtHref = r_content.get(0).getElementsByTag("a").get(0).attr("href");
 								Thread.sleep(1000);
-								Document detailDoc_2 = getDoc(detailLink);
-								if(null == detailDoc_2){
-									continue;
-								}
-								Elements main_left = detailDoc_2.getElementsByClass("main-left");
-								if(null != main_left && main_left.size() > 0){
-									Elements main_left_li = main_left.get(0).getElementsByTag("li");
-									for(int z = 0;z < main_left_li.size();z++){
-										String left = (null != main_left_li.get(z).getElementsByClass("list-left") && main_left_li.get(z).getElementsByClass("list-left").size() > 0) ? main_left_li.get(z).getElementsByClass("list-left").text() : "";
-										left = left.replaceAll(" ", "");
-										String right = (null != main_left_li.get(z).getElementsByClass("list-right") && main_left_li.get(z).getElementsByClass("list-right").size() > 0) ? main_left_li.get(z).getElementsByClass("list-right").text() : "";
-										if("".equals(right)){
-											right = (null != main_left_li.get(z).getElementsByClass("list-right-floor") && main_left_li.get(z).getElementsByClass("list-right-floor").size() > 0) ? main_left_li.get(z).getElementsByClass("list-right-floor").text() : "";
-										}
-										if("".equals(right)){
-											right = (null != main_left_li.get(z).getElementsByClass("list-right-text") && main_left_li.get(z).getElementsByClass("list-right-text").size() > 0) ? main_left_li.get(z).getElementsByClass("list-right-text").text() : "";
-										}
-										if(!"".equals(left)){
-											houseMap.put(left.replaceAll(":", "").replaceAll("：", ""), right);
-										}
+								Document dtDoc_2 = getDoc(dtHref);
+								if(null != dtDoc_2){
+									Elements atc_wrapper = dtDoc_2.getElementsByClass("atc-wrapper");
+									if(atc_wrapper.size() > 0){
+										houseMap.put("楼盘动态内容", atc_wrapper.get(0).text());
 									}
 								}
-								houseList.add(houseMap);
-								break;
+							}
+							break;
+						}
+					}
+				}
+			} catch (Exception e) {
+				throw e;
+			} finally {
+				finishCount_dt++;
+			}
+		}
+		/**
+		 * 获取楼盘详情和楼盘动态
+		 * @param navleft_a
+		 * @param houseMap
+		 * @throws Exception 
+		 */
+		private void getHouseDetail(String detailLink,
+				Map<String, String> houseMap) throws Exception {
+			try {
+				houseMap.put("名称", houseName);
+				houseMap.put("网址", detailLink);
+				
+				//读取“详细信息”中的内容
+				//Document detailDoc_2  = Jsoup.connect(detailLink).timeout(timeOut).get();
+				Thread.sleep(1000);
+				Document detailDoc_2 = getDoc(detailLink);
+				if(null != detailDoc_2){
+					Elements main_left = detailDoc_2.getElementsByClass("main-left");
+					if(null != main_left && main_left.size() > 0){
+						Elements main_left_li = main_left.get(0).getElementsByTag("li");
+						for(int z = 0;z < main_left_li.size();z++){
+							String left = (null != main_left_li.get(z).getElementsByClass("list-left") && main_left_li.get(z).getElementsByClass("list-left").size() > 0) ? main_left_li.get(z).getElementsByClass("list-left").text() : "";
+							left = left.replaceAll(" ", "");
+							String right = (null != main_left_li.get(z).getElementsByClass("list-right") && main_left_li.get(z).getElementsByClass("list-right").size() > 0) ? main_left_li.get(z).getElementsByClass("list-right").text() : "";
+							if("".equals(right)){
+								right = (null != main_left_li.get(z).getElementsByClass("list-right-floor") && main_left_li.get(z).getElementsByClass("list-right-floor").size() > 0) ? main_left_li.get(z).getElementsByClass("list-right-floor").text() : "";
+							}
+							if("".equals(right)){
+								right = (null != main_left_li.get(z).getElementsByClass("list-right-text") && main_left_li.get(z).getElementsByClass("list-right-text").size() > 0) ? main_left_li.get(z).getElementsByClass("list-right-text").text() : "";
+							}
+							if(!"".equals(left)){
+								houseMap.put(left.replaceAll(":", "").replaceAll("：", ""), right);
 							}
 						}
 					}
 				}
 			} catch (Exception e) {
-				e.printStackTrace();
+				throw e;
 			}finally{
-				finishCount++;
+				finishCount_detail++;
 			}
 		}
 	}
