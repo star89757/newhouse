@@ -33,16 +33,17 @@ import org.jsoup.select.Elements;
 
 public class GetNewHouse2 {
 
-	static int pageSize = 1;//提取多少页，如果-1，则提取所有
+	static int pageSize = -1;//提取多少页，如果-1，则提取所有
 	static int page = 1;
 	static int timeOut = 20000;
 	static int count = 0;
 	static int finishCount_detail = 0;
 	static int finishCount_dt = 0;
 	static int finishCount_hx = 0;
+	static int finishCount_kpxq = 0;
+	static int dd = 0;
 	
 	static List<Map<String,String>> houseList = new ArrayList<Map<String,String>>();
-	
 	
 	public static void main(String[] args) {
 		
@@ -50,7 +51,7 @@ public class GetNewHouse2 {
 		getNewHouse(htmlUrl,htmlUrl,houseList);
 		
 		//所有线程执行完后写入Excel文件
-		while(count != finishCount_detail || count != finishCount_dt || count != finishCount_hx){
+		while(count != finishCount_detail || count != finishCount_dt || count != finishCount_hx || count != finishCount_kpxq){
 			try {
 				//System.out.println("等待所有网页提取完成！");
 				Thread.sleep(2000);
@@ -107,6 +108,8 @@ public class GetNewHouse2 {
 
 			List<String> mxHeads = new ArrayList<String>();//明细报表表头数据
 			mxHeads.add("名称");
+			mxHeads.add("别名");
+			mxHeads.add("价格");
 			
 			mxHeads.add("物业类别");
 			mxHeads.add("产权年限");
@@ -127,6 +130,9 @@ public class GetNewHouse2 {
 			
 			//mxHeads.add("楼盘动态标题");
 			mxHeads.add("楼盘动态内容");
+			mxHeads.add("开盘时间");
+			mxHeads.add("开盘详情");
+			mxHeads.add("交房时间");
 			
 			mxHeads.add("网址");
 			
@@ -204,17 +210,18 @@ public class GetNewHouse2 {
 						if(null != detailDoc_1){
 							//楼盘详细页面
 							Elements navleft = detailDoc_1.getElementsByClass("navleft");
-							String detailLink = "";
-							String dtLink  = "";
-							String hxLink = "";
+							String detailLink = "";//楼盘详情
+							String dtLink  = "";//楼盘动态
+							String hxLink = "";//户型
+							String kpxqLink = "";//开盘详情
 							if(null != navleft && navleft.size() > 0){
 								Elements navleft_a = navleft.get(0).getElementsByTag("a");
 								for(int x = 0;x<navleft_a.size();x++){
-									//TODO:
 									String linkName = navleft_a.get(x).text();
 									if(linkName.indexOf("楼盘详情") != -1 || linkName.indexOf("详细信息") != -1){
 										detailLink = navleft_a.get(x).attr("href");
 										dtLink = detailLink.replace("housedetail.htm", "dongtai.htm");
+										kpxqLink = detailLink.replace("housedetail.htm", "sale_history.htm");
 									}
 									if(linkName.indexOf("户型") != -1){
 										hxLink = navleft_a.get(x).attr("href");
@@ -232,6 +239,8 @@ public class GetNewHouse2 {
 								e2.start();
 								ExecuteThread e3 = new ExecuteThread(hxLink, houseName,"户型",houseMap);
 								e3.start();
+								ExecuteThread e4 = new ExecuteThread(kpxqLink, houseName,"开盘详情",houseMap);
+								e4.start();
 								
 								if(houseMap.size() > 0){
 									houseList.add(houseMap);
@@ -255,12 +264,12 @@ public class GetNewHouse2 {
 				for(int i = 0;i<otherpage_a.size();i++){
 					if(">".equals(otherpage_a.get(i).text())){
 						if(-1 == pageSize){
-							Thread.sleep(10000);
+							Thread.sleep(30000);
 							page++;
 							getNewHouse(baseUrl, baseUrl + otherpage_a.get(i).attr("href"),houseList);
 						}else{
 							if(page < pageSize){
-								Thread.sleep(10000);
+								Thread.sleep(30000);
 								page++;
 								getNewHouse(baseUrl, baseUrl + otherpage_a.get(i).attr("href"),houseList);
 							}
@@ -308,15 +317,23 @@ public class GetNewHouse2 {
 		httpGet.addHeader(
 				"Cookie",
 				"_gat=1; nsfw-click-load=off; gif-click-load=on; _ga=GA1.2.1861846600.1423061484");
+		CloseableHttpResponse response = null;
 		try {
 			// 发送请求，并执行
-			CloseableHttpResponse response = httpClient.execute(httpGet);
+			response = httpClient.execute(httpGet);
 			InputStream in = response.getEntity().getContent();
 			String html = convertStreamToString(in);
 			Document doc = Jsoup.parse(html);
 			return doc.html();
 		} catch (Exception e) {
 			e.printStackTrace();
+		} finally {
+			try {
+				response.close();
+				httpClient.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 		}
 		return "";
 	}
@@ -373,11 +390,56 @@ public class GetNewHouse2 {
 				if("户型".equals(this.type)){
 					getHx(houseLink, houseMap);
 				}
+				if("开盘详情".equals(this.type)){
+					getKpxq(houseLink, houseMap);
+				}
 			} catch (Exception e) {
-				e.printStackTrace();
+				//e.printStackTrace();
+				System.out.println("=========提取[" + houseName + "][" + type + "][失败]：" + e.getMessage() + "=========");
 			}
 		}
 
+		/**
+		 * 获取开盘详情
+		 * @param kpxqLink
+		 * @param houseMap
+		 * @throws Exception
+		 */
+		private void getKpxq(String kpxqLink,
+				Map<String, String> houseMap) throws Exception {
+				try {
+					if(null != kpxqLink && !"".equals(kpxqLink)){
+						Thread.sleep(1000);
+						Document hxDoc = getDoc(kpxqLink);
+						if(null != hxDoc){
+							Elements kpjjlu = hxDoc.getElementsByClass("kpjjlu");
+							if(kpjjlu.size() > 0){
+								Elements tr = kpjjlu.get(0).getElementsByTag("tr");
+								String kpjjluStr = "";
+								for(int i = 1;i<tr.size();i++){
+									String title = "";
+									String content = "";
+									try {
+										title = tr.get(i).getElementsByTag("td").get(0).text();
+										content = tr.get(i).getElementsByTag("td").get(1).text();
+									} catch (Exception e) {
+									}
+									
+									if(!"".equals(title)){
+										kpjjluStr += title + " : " + content + "--";
+									}
+								}
+								houseMap.put("开盘详情", kpjjluStr);
+							}
+						}
+					}
+				} catch (Exception e) {
+					throw e;
+				} finally {
+					finishCount_kpxq++;
+				}
+			}
+		
 		/**
 		 * 获取户型
 		 * @param navleft_a
@@ -386,20 +448,21 @@ public class GetNewHouse2 {
 		 */
 		private void getHx(String hxLink,
 			Map<String, String> houseMap) throws Exception {
-		
 			try {
-				Thread.sleep(1000);
-				Document hxDoc = getDoc(hxLink);
-				if(null != hxDoc){
-					Elements xc_img_list = hxDoc.getElementsByClass("xc_img_list");
-					String hxStr = "";
-					for(int i = 0;i<xc_img_list.size();i++){
-						Elements tiaojian = xc_img_list.get(i).getElementsByClass("tiaojian");
-						if(tiaojian.size() > 0){
-							hxStr += tiaojian.get(0).text() + "--";
+				if(null != hxLink && !"".equals(hxLink)){
+					Thread.sleep(1000);
+					Document hxDoc = getDoc(hxLink);
+					if(null != hxDoc){
+						Elements xc_img_list = hxDoc.getElementsByClass("xc_img_list");
+						String hxStr = "";
+						for(int i = 0;i<xc_img_list.size();i++){
+							Elements tiaojian = xc_img_list.get(i).getElementsByClass("tiaojian");
+							if(tiaojian.size() > 0){
+								hxStr += tiaojian.get(0).text() + "--";
+							}
 						}
+						houseMap.put("户型", hxStr);
 					}
-					houseMap.put("户型", hxStr);
 				}
 			} catch (Exception e) {
 				throw e;
@@ -472,8 +535,22 @@ public class GetNewHouse2 {
 				Thread.sleep(1000);
 				Document detailDoc_2 = getDoc(detailLink);
 				if(null != detailDoc_2){
+					Elements h1_label = detailDoc_2.getElementsByClass("h1_label");
+					for(int i = 0 ;i<h1_label.size();i++){
+						String biemin = h1_label.get(i).text();
+						if(null != biemin && biemin.indexOf("别名") != -1){
+							houseMap.put("别名", biemin);
+							break;
+						}
+					}
+					
 					Elements main_left = detailDoc_2.getElementsByClass("main-left");
 					if(null != main_left && main_left.size() > 0){
+						//价格
+						Elements main_info_price = main_left.get(0).getElementsByClass("main-info-price");
+						if(null != main_info_price && main_info_price.size() > 0){
+							houseMap.put("价格", main_info_price.get(0).text());
+						}
 						Elements main_left_li = main_left.get(0).getElementsByTag("li");
 						for(int z = 0;z < main_left_li.size();z++){
 							String left = (null != main_left_li.get(z).getElementsByClass("list-left") && main_left_li.get(z).getElementsByClass("list-left").size() > 0) ? main_left_li.get(z).getElementsByClass("list-left").text() : "";
