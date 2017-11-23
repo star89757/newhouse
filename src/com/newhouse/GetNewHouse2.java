@@ -12,6 +12,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 
 import org.apache.http.client.config.CookieSpecs;
 import org.apache.http.client.config.RequestConfig;
@@ -47,23 +48,28 @@ public class GetNewHouse2 {
 	
 	public static void main(String[] args) {
 		
-		String htmlUrl = "http://newhouse.dg.fang.com/house/s";
-		getNewHouse(htmlUrl,htmlUrl,houseList);
+		//String htmlUrl = "http://newhouse.dg.fang.com/house/s";
+		String htmlUrl = "";
 		
-		//所有线程执行完后写入Excel文件
-		while(count != finishCount_detail || count != finishCount_dt || count != finishCount_hx || count != finishCount_kpxq){
-			try {
-				//System.out.println("等待所有网页提取完成！");
-				Thread.sleep(2000);
-			} catch (InterruptedException e) {
+		System.out.println("请输入链接地址：");
+		Scanner scan = new Scanner(System.in);
+		htmlUrl = scan.nextLine();
+		
+		if(!"".equals(htmlUrl)){
+			getNewHouse(htmlUrl,htmlUrl,houseList);
+			
+			//所有线程执行完后写入Excel文件
+			while(count != finishCount_detail || count != finishCount_dt || count != finishCount_hx || count != finishCount_kpxq){
+				try {
+					//System.out.println("等待所有网页提取完成！");
+					Thread.sleep(2000);
+				} catch (InterruptedException e) {
+				}
 			}
+			String fileName = exportExcel(houseList);
+			System.out.println("===============成功生成文件：" + fileName + "===============");
+			System.out.println("===============执行完成===============");
 		}
-		/*for(int i =0;i<houseList.size();i++){
-			System.out.println(houseList.get(i).toString());
-		}*/
-		String fileName = exportExcel(houseList);
-		System.out.println("===============成功生成文件：" + fileName + "===============");
-		System.out.println("===============执行完成===============");
 	}
 
 	/**
@@ -134,6 +140,8 @@ public class GetNewHouse2 {
 			mxHeads.add("开盘详情");
 			mxHeads.add("交房时间");
 			
+			mxHeads.add("项目简介");
+			
 			mxHeads.add("网址");
 			
 			//写表头
@@ -196,82 +204,104 @@ public class GetNewHouse2 {
 				return;
 			}
 			Elements nhouse_list = doc.getElementsByClass("nhouse_list");
-			for(int i = 0;i<nhouse_list.size();i++){
-				Elements nhouse_li = nhouse_list.get(i).getElementsByTag("li");
-				for(int j = 0;j<nhouse_li.size();j++){
-					Elements nhouse_li_a = nhouse_li.get(j).getElementsByTag("a");
-					if(nhouse_li_a.size() > 1){
-						String houseName = nhouse_li_a.get(1).text();
-						String houseLink = nhouse_li_a.get(1).attr("href");
-						//Document detailDoc_1  = Jsoup.connect(houseLink).timeout(timeOut).get();
-						Map<String,String> houseMap = new HashMap<String,String>();
-						
-						Document detailDoc_1  = getDoc(houseLink);
-						if(null != detailDoc_1){
-							//楼盘详细页面
-							Elements navleft = detailDoc_1.getElementsByClass("navleft");
-							String detailLink = "";//楼盘详情
-							String dtLink  = "";//楼盘动态
-							String hxLink = "";//户型
-							String kpxqLink = "";//开盘详情
-							if(null != navleft && navleft.size() > 0){
-								Elements navleft_a = navleft.get(0).getElementsByTag("a");
-								for(int x = 0;x<navleft_a.size();x++){
-									String linkName = navleft_a.get(x).text();
-									if(linkName.indexOf("楼盘详情") != -1 || linkName.indexOf("详细信息") != -1){
-										detailLink = navleft_a.get(x).attr("href");
-										dtLink = detailLink.replace("housedetail.htm", "dongtai.htm");
-										kpxqLink = detailLink.replace("housedetail.htm", "sale_history.htm");
-									}
-									if(linkName.indexOf("户型") != -1){
-										hxLink = navleft_a.get(x).attr("href");
-									}
-								}
-							}
-							houseMap.put("名称", houseName);
-							houseMap.put("网址", detailLink);
-							
-							if(!"".equals(detailLink)){
-								count++;
-								ExecuteThread e1 = new ExecuteThread(detailLink, houseName,"楼盘详情",houseMap);
-								e1.start();
-								ExecuteThread e2 = new ExecuteThread(dtLink, houseName,"楼盘动态",houseMap);
-								e2.start();
-								ExecuteThread e3 = new ExecuteThread(hxLink, houseName,"户型",houseMap);
-								e3.start();
-								ExecuteThread e4 = new ExecuteThread(kpxqLink, houseName,"开盘详情",houseMap);
-								e4.start();
-								
-								if(houseMap.size() > 0){
-									houseList.add(houseMap);
-								}
-							}
+			if(nhouse_list.size() > 0){
+				Elements nl_con = nhouse_list.get(0).getElementsByClass("nl_con");
+				for(int i = 0;i<nl_con.size();i++){
+					Elements nhouse_li = nl_con.get(i).getElementsByTag("li");
+					for(int j = 0;j<nhouse_li.size();j++){
+						Elements nhouse_li_a = nhouse_li.get(j).getElementsByTag("a");
+						if(nhouse_li_a.size() > 1){
+							String houseName = nhouse_li_a.get(1).text();
+							String houseLink = nhouse_li_a.get(1).attr("href");
+							//Document detailDoc_1  = Jsoup.connect(houseLink).timeout(timeOut).get();
+							Map<String,String> houseMap = new HashMap<String,String>();
+							directionToHouseDetail(houseLink,houseName,houseMap);
 						}
-						/*
-						Thread.sleep(1000);
-						//新建多线程去爬楼盘“详细信息”
-						count++;
-						ExecuteThread e = new ExecuteThread(houseLink, houseName);
-						e.start();*/
+					}
+				}
+			}else{
+				//一些老的特殊网页,如“梅州”等二线城市
+				Elements sslist = doc.getElementsByClass("sslist");
+				if(sslist.size()> 0){
+					Elements sslalone = sslist.get(0).getElementsByClass("sslalone");
+					for(int i =0;i<sslalone.size();i++){
+						String houseName = "";
+						String houseLink = "";
+						
+						try {
+							houseName = sslalone.get(i).getElementsByClass("sslainfor").get(0).getElementsByTag("a").get(0).text();
+							houseLink = sslalone.get(i).getElementsByClass("sslainfor").get(0).getElementsByTag("a").get(0).attr("href");
+						} catch (Exception e) {
+						}
+						if(!"".equals(houseName)){
+							Map<String,String> houseMap = new HashMap<String,String>();
+							directionToHouseDetail(houseLink,houseName,houseMap);
+						}
 					}
 				}
 			}
 			
-			//判断是否有下一页
-			Elements otherpage = doc.getElementsByClass("otherpage");
-			if(otherpage.size()>0){
-				Elements otherpage_a = otherpage.get(0).getElementsByTag("a");
-				for(int i = 0;i<otherpage_a.size();i++){
-					if(">".equals(otherpage_a.get(i).text())){
-						if(-1 == pageSize){
-							Thread.sleep(30000);
-							page++;
-							getNewHouse(baseUrl, baseUrl + otherpage_a.get(i).attr("href"),houseList);
-						}else{
-							if(page < pageSize){
-								Thread.sleep(30000);
+			//判断是否有下一页(筛选栏中的上下页，有些网页没有)
+			if(nhouse_list.size() > 0){
+				//新版网页
+				Elements otherpage = doc.getElementsByClass("otherpage");
+				if(otherpage.size()>0){
+					Elements otherpage_a = otherpage.get(0).getElementsByTag("a");
+					for(int i = 0;i<otherpage_a.size();i++){
+						if(">".equals(otherpage_a.get(i).text())){
+							if(-1 == pageSize){
+								Thread.sleep(10000);
 								page++;
 								getNewHouse(baseUrl, baseUrl + otherpage_a.get(i).attr("href"),houseList);
+							}else{
+								if(page < pageSize){
+									Thread.sleep(10000);
+									page++;
+									getNewHouse(baseUrl, baseUrl + otherpage_a.get(i).attr("href"),houseList);
+								}
+							}
+						}
+					}
+				}else{
+					//页脚上下页
+					Elements nextPage = doc.getElementsByClass("page");
+					if(nextPage.size()>0){
+						Elements nextPage_a = nextPage.get(0).getElementsByClass("next");
+						if(nextPage_a.size() > 0){
+							String nextPageLink = nextPage_a.get(0).attr("href");
+							if(-1 == pageSize){
+								Thread.sleep(10000);
+								page++;
+								getNewHouse(baseUrl, baseUrl + nextPageLink,houseList);
+							}else{
+								if(page < pageSize){
+									Thread.sleep(10000);
+									page++;
+									getNewHouse(baseUrl, baseUrl + nextPageLink,houseList);
+								}
+							}
+						}
+					}
+				}
+			}else{
+				//老版网页
+				Elements pagearrowright = doc.getElementsByClass("pagearrowright");
+				if(pagearrowright.size() > 0){
+					String pagearrowrightLink = "";
+					try {
+						pagearrowrightLink = pagearrowright.get(0).getElementsByTag("a").get(0).attr("href");
+					} catch (Exception e) {
+					}
+					if(!"".equals(pagearrowrightLink)){
+						if(-1 == pageSize){
+							Thread.sleep(10000);
+							page++;
+							getNewHouse(baseUrl, baseUrl + pagearrowrightLink,houseList);
+						}else{
+							if(page < pageSize){
+								Thread.sleep(10000);
+								page++;
+								getNewHouse(baseUrl, baseUrl + pagearrowrightLink,houseList);
 							}
 						}
 					}
@@ -279,6 +309,53 @@ public class GetNewHouse2 {
 			}
 		} catch (Exception e) {
 			e.printStackTrace();
+		}
+	}
+	
+	/*
+	 * 跳转到“楼盘详情”页面
+	 */
+	public static void directionToHouseDetail(String houseLink, String houseName, Map<String, String> houseMap){
+		Document detailDoc_1  = getDoc(houseLink);
+		if(null != detailDoc_1){
+			//楼盘详细页面
+			Elements navleft = detailDoc_1.getElementsByClass("navleft");
+			String detailLink = "";//楼盘详情
+			String dtLink  = "";//楼盘动态
+			String hxLink = "";//户型
+			String kpxqLink = "";//开盘详情
+			if(null != navleft && navleft.size() > 0){
+				Elements navleft_a = navleft.get(0).getElementsByTag("a");
+				for(int x = 0;x<navleft_a.size();x++){
+					String linkName = navleft_a.get(x).text();
+					if(linkName.indexOf("楼盘详情") != -1 || linkName.indexOf("详细信息") != -1){
+						detailLink = navleft_a.get(x).attr("href");
+						dtLink = detailLink.replace("housedetail.htm", "dongtai.htm");
+						kpxqLink = detailLink.replace("housedetail.htm", "sale_history.htm");
+					}
+					if(linkName.indexOf("户型") != -1){
+						hxLink = navleft_a.get(x).attr("href");
+					}
+				}
+			}
+			houseMap.put("名称", houseName);
+			houseMap.put("网址", detailLink);
+			
+			if(!"".equals(detailLink)){
+				count++;
+				ExecuteThread e1 = new ExecuteThread(detailLink, houseName,"楼盘详情",houseMap);
+				e1.start();
+				ExecuteThread e2 = new ExecuteThread(dtLink, houseName,"楼盘动态",houseMap);
+				e2.start();
+				ExecuteThread e3 = new ExecuteThread(hxLink, houseName,"户型",houseMap);
+				e3.start();
+				ExecuteThread e4 = new ExecuteThread(kpxqLink, houseName,"开盘详情",houseMap);
+				e4.start();
+				
+				if(houseMap.size() > 0){
+					houseList.add(houseMap);
+				}
+			}
 		}
 	}
 	
@@ -486,30 +563,59 @@ public class GetNewHouse2 {
 					Elements dtli = dtDoc.getElementsByTag("li");
 					for(int i = 0;i<dtli.size();i++){
 						Elements time_wrapper = dtli.get(i).getElementsByClass("time-wrapper");
-						Elements r_content = dtli.get(i).getElementsByClass("r-content");
 						if(time_wrapper.size() > 0){
-							String title = "";
-							try {
-								title = time_wrapper.get(0).getElementsByTag("h3").get(0).text() + " " + 
-										time_wrapper.get(0).getElementsByTag("h2").get(0).text() + " " + 
-										time_wrapper.get(0).getElementsByTag("h1").get(0).text() + " " + 
-										r_content.get(0).getElementsByTag("h1").text();
-							} catch (Exception e) {
-							}
-							if(!"".equals(title)){
-								houseMap.put("楼盘动态标题", title);
-								String dtHref = r_content.get(0).getElementsByTag("a").get(0).attr("href");
-								Thread.sleep(1000);
-								Document dtDoc_2 = getDoc(dtHref);
-								if(null != dtDoc_2){
-									Elements atc_wrapper = dtDoc_2.getElementsByClass("atc-wrapper");
-									if(atc_wrapper.size() > 0){
-										houseMap.put("楼盘动态内容", atc_wrapper.get(0).text());
+							//旧版楼盘动态
+							Elements r_content = dtli.get(i).getElementsByClass("r-content");
+							if(time_wrapper.size() > 0){
+								String title = "";
+								try {
+									title = time_wrapper.get(0).getElementsByTag("h3").get(0).text() + " " + 
+											time_wrapper.get(0).getElementsByTag("h2").get(0).text() + " " + 
+											time_wrapper.get(0).getElementsByTag("h1").get(0).text() + " " + 
+											r_content.get(0).getElementsByTag("h1").text();
+								} catch (Exception e) {
+								}
+								if(!"".equals(title)){
+									houseMap.put("楼盘动态标题", title);
+									String dtHref = r_content.get(0).getElementsByTag("a").get(0).attr("href");
+									Thread.sleep(1000);
+									Document dtDoc_2 = getDoc(dtHref);
+									if(null != dtDoc_2){
+										Elements atc_wrapper = dtDoc_2.getElementsByClass("atc-wrapper");
+										if(atc_wrapper.size() > 0){
+											houseMap.put("楼盘动态内容", atc_wrapper.get(0).text());
+										}
 									}
 								}
+								break;
 							}
-							break;
+						}else{
+							//使用新版楼盘动态
+							if("storyList".equals(dtli.get(i).attr("class"))){
+								Elements storyList_a = dtli.get(i).getElementsByTag("a");
+								if(storyList_a.size() > 0){
+									String title = "";
+									try {
+										title = dtli.get(i).getElementsByClass("sLTime").get(0).text() + ":" + storyList_a.get(0).text();
+									} catch (Exception e) {
+									}
+									if(!"".equals(title)){
+										houseMap.put("楼盘动态标题", title);
+										String dtHref = storyList_a.get(0).attr("href");
+										Thread.sleep(1000);
+										Document dtDoc_2 = getDoc(dtHref);
+										if(null != dtDoc_2){
+											Elements atc_wrapper = dtDoc_2.getElementsByClass("atc-wrapper");
+											if(atc_wrapper.size() > 0){
+												houseMap.put("楼盘动态内容", atc_wrapper.get(0).text());
+											}
+										}
+									}
+									break;
+								}
+							}
 						}
+						
 					}
 				}
 			} catch (Exception e) {
@@ -551,6 +657,12 @@ public class GetNewHouse2 {
 						if(null != main_info_price && main_info_price.size() > 0){
 							houseMap.put("价格", main_info_price.get(0).text());
 						}
+						//项目简介
+						Elements intro = main_left.get(0).getElementsByClass("intro");
+						if(intro.size() > 0){
+							houseMap.put("项目简介", intro.get(0).text());
+						}
+						
 						Elements main_left_li = main_left.get(0).getElementsByTag("li");
 						for(int z = 0;z < main_left_li.size();z++){
 							String left = (null != main_left_li.get(z).getElementsByClass("list-left") && main_left_li.get(z).getElementsByClass("list-left").size() > 0) ? main_left_li.get(z).getElementsByClass("list-left").text() : "";
